@@ -17,8 +17,7 @@ A modern, type-safe REST API framework for Go that leverages generics to provide
 ## Installation
 
 ```bash
-go get github.com/example/api-framework/framework
-go get github.com/example/api-framework/framework/openapi
+go get github.com/RottenNinja-Go/framework
 ```
 
 ## Quick Start
