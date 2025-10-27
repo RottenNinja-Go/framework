@@ -30,8 +30,8 @@ import (
     "net/http"
     "log"
 
-    "github.com/example/api-framework/framework"
-    "github.com/example/api-framework/framework/openapi"
+    "github.com/RottenNinja-Go/framework"
+    "github.com/RottenNinja-Go/framework/openapi"
 )
 
 // Define your request and response types
@@ -173,7 +173,7 @@ type UpdateUserRequest struct {
 Handle file uploads with type-safe multipart form data:
 
 ```go
-import "github.com/example/api-framework/framework"
+import "github.com/RottenNinja-Go/framework"
 
 type UploadAvatarRequest struct {
     UserID string               `route:"id" validate:"required"`
@@ -555,8 +555,8 @@ import (
     "log"
     "net/http"
 
-    "github.com/example/api-framework/framework"
-    "github.com/example/api-framework/framework/openapi"
+    "github.com/RottenNinja-Go/framework"
+    "github.com/RottenNinja-Go/framework/openapi"
 )
 
 // Models
@@ -729,7 +729,7 @@ import (
     "io"
     "net/http"
 
-    "github.com/example/api-framework/framework"
+    "github.com/RottenNinja-Go/framework"
 )
 
 // Request with both query arrays and file upload
