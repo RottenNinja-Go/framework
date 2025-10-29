@@ -65,65 +65,23 @@ type Handler[Req any, Resp any] func(ctx context.Context, req Req) (Resp, error)
 // It receives the next handler and returns a new handler that can wrap it
 type Middleware func(next http.Handler) http.Handler
 
-// EndpointBuilder provides a fluent API for building endpoints with optional metadata
-type EndpointBuilder[Req any, Resp any] struct {
-	method      string
-	path        string
-	handler     Handler[Req, Resp]
-	summary     string
-	description string
-	tags        []string
-	middlewares []Middleware
-}
-
-// Summary sets the endpoint summary
-func (b *EndpointBuilder[Req, Resp]) Summary(summary string) *EndpointBuilder[Req, Resp] {
-	b.summary = summary
-	return b
-}
-
-// Description sets the endpoint description
-func (b *EndpointBuilder[Req, Resp]) Description(description string) *EndpointBuilder[Req, Resp] {
-	b.description = description
-	return b
-}
-
-// Tags sets the endpoint tags
-func (b *EndpointBuilder[Req, Resp]) Tags(tags ...string) *EndpointBuilder[Req, Resp] {
-	b.tags = tags
-	return b
-}
-
-// Use adds one or more middleware functions to the endpoint
-// Middleware is applied in the order it's added (first added = outermost wrapper)
-// Example: Use(logging, auth, ratelimit) wraps as logging(auth(ratelimit(handler)))
-func (b *EndpointBuilder[Req, Resp]) Use(middleware ...Middleware) *EndpointBuilder[Req, Resp] {
-	b.middlewares = append(b.middlewares, middleware...)
-	return b
-}
-
-// Register completes the builder chain and registers the endpoint
-func (b *EndpointBuilder[Req, Resp]) Register(router Router) error {
-	// Combine group middlewares with endpoint-specific middlewares
-	// Group middlewares should be applied first (outermost)
-	allMiddlewares := append(router.getMiddlewares(), b.middlewares...)
-
-	// Combine group prefix with endpoint path
-	fullPath := router.getPrefix() + b.path
-
-	return registerWithMiddleware(router.getFramework(), b.method, fullPath, b.summary, b.description, b.tags, b.handler, allMiddlewares)
+type HandlerRoute[TReq any, TResp any] struct {
+	*EndpointSpec
+	Handler func(ctx context.Context, req TReq) (TResp, error)
 }
 
 // EndpointSpec defines the specification for an endpoint
 type EndpointSpec struct {
 	Method       string
-	Path         string
+	RelativePath string
+	FullPath     string
 	Summary      string
 	Description  string
 	Tags         []string
 	RequestType  reflect.Type
 	ResponseType reflect.Type
-	handlerFunc  http.HandlerFunc
+	Middlewares  []Middleware
+	// handlerFunc  http.HandlerFunc
 }
 
 // fieldParser holds pre-computed parsing logic for a field
@@ -255,105 +213,43 @@ func (g *Group) Group(prefix string) *Group {
 }
 
 // registerWithMiddleware registers a new endpoint with type-safe handler and middleware
-func registerWithMiddleware[Req any, Resp any](f *Framework, method, path, summary, description string, tags []string, handler Handler[Req, Resp], middlewares []Middleware) error {
+func RegisterHandlerRoute[Req any, Resp any](router Router, route *HandlerRoute[Req, Resp]) {
+
+	f := router.getFramework()
+
+	// Combine group middlewares with endpoint-specific middlewares
+	// Group middlewares should be applied first (outermost)
+	allMiddlewares := append(router.getMiddlewares(), route.Middlewares...)
+
+	// Combine group prefix with endpoint path
+	route.FullPath = router.getPrefix() + route.RelativePath
+
 	// Get request and response types for OpenAPI generation
 	var reqExample Req
-	reqType := reflect.TypeOf(reqExample)
+	route.RequestType = reflect.TypeOf(reqExample)
 
 	var respExample Resp
-	respType := reflect.TypeOf(respExample)
+	route.ResponseType = reflect.TypeOf(respExample)
 
 	// Build request parser plan at registration time (expensive reflection here)
-	parser := buildRequestParser(reqType)
+	parser := buildRequestParser(route.RequestType)
 
 	// Create HTTP handler function with pre-computed parser
-	httpHandler := createTypeSafeHandler(f, handler, parser)
+	httpHandler := createTypeSafeHandler(f, route.Handler, parser)
 
 	// Apply middleware in reverse order (so first middleware added is outermost)
 	var finalHandler http.Handler = httpHandler
-	for i := len(middlewares) - 1; i >= 0; i-- {
-		finalHandler = middlewares[i](finalHandler)
+	for i := len(allMiddlewares) - 1; i >= 0; i-- {
+		finalHandler = allMiddlewares[i](finalHandler)
 	}
+	// route.handlerFunc = finalHandler.ServeHTTP
 
-	// Store endpoint spec
-	spec := &EndpointSpec{
-		Method:       method,
-		Path:         path,
-		Summary:      summary,
-		Description:  description,
-		Tags:         tags,
-		RequestType:  reqType,
-		ResponseType: respType,
-		handlerFunc:  finalHandler.ServeHTTP,
-	}
-	f.endpoints = append(f.endpoints, spec)
+	f.endpoints = append(f.endpoints, route.EndpointSpec)
 
 	// Register with ServeMux using method and path pattern
 	// Go 1.22+ supports patterns like "GET /users/{id}"
-	pattern := method + " " + path
+	pattern := route.Method + " " + route.FullPath
 	f.mux.Handle(pattern, finalHandler)
-
-	return nil
-}
-
-// GET registers a GET endpoint with type-safe handler using a fluent API
-// Works with both Framework and Group through the Router interface
-// Can be used directly: GET(f, path, handler).Summary("...").Tags("...").Register()
-// Or without metadata: GET(f, path, handler).Register()
-func GET[Req any, Resp any](path string, handler Handler[Req, Resp]) *EndpointBuilder[Req, Resp] {
-	return &EndpointBuilder[Req, Resp]{
-		method:  "GET",
-		path:    path,
-		handler: handler,
-	}
-}
-
-// POST registers a POST endpoint with type-safe handler using a fluent API
-// Works with both Framework and Group through the Router interface
-// Can be used directly: POST(f, path, handler).Summary("...").Tags("...").Register()
-// Or without metadata: POST(f, path, handler).Register()
-func POST[Req any, Resp any](path string, handler Handler[Req, Resp]) *EndpointBuilder[Req, Resp] {
-	return &EndpointBuilder[Req, Resp]{
-		method:  "POST",
-		path:    path,
-		handler: handler,
-	}
-}
-
-// PUT registers a PUT endpoint with type-safe handler using a fluent API
-// Works with both Framework and Group through the Router interface
-// Can be used directly: PUT(f, path, handler).Summary("...").Tags("...").Register()
-// Or without metadata: PUT(f, path, handler).Register()
-func PUT[Req any, Resp any](path string, handler Handler[Req, Resp]) *EndpointBuilder[Req, Resp] {
-	return &EndpointBuilder[Req, Resp]{
-		method:  "PUT",
-		path:    path,
-		handler: handler,
-	}
-}
-
-// PATCH registers a PATCH endpoint with type-safe handler using a fluent API
-// Works with both Framework and Group through the Router interface
-// Can be used directly: PATCH(f, path, handler).Summary("...").Tags("...").Register()
-// Or without metadata: PATCH(f, path, handler).Register()
-func PATCH[Req any, Resp any](path string, handler Handler[Req, Resp]) *EndpointBuilder[Req, Resp] {
-	return &EndpointBuilder[Req, Resp]{
-		method:  "PATCH",
-		path:    path,
-		handler: handler,
-	}
-}
-
-// DELETE registers a DELETE endpoint with type-safe handler using a fluent API
-// Works with both Framework and Group through the Router interface
-// Can be used directly: DELETE(f, path, handler).Summary("...").Tags("...").Register()
-// Or without metadata: DELETE(f, path, handler).Register()
-func DELETE[Req any, Resp any](path string, handler Handler[Req, Resp]) *EndpointBuilder[Req, Resp] {
-	return &EndpointBuilder[Req, Resp]{
-		method:  "DELETE",
-		path:    path,
-		handler: handler,
-	}
 }
 
 // buildRequestParser builds a pre-computed parser plan for a request type

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/RottenNinja-Go/framework"
+	"github.com/RottenNinja-Go/framework/handler"
 	"github.com/RottenNinja-Go/framework/openapi"
 )
 
@@ -144,77 +145,56 @@ func main() {
 	// and will have both logging and auth middleware applied
 
 	// POST /api/v1/users - Create a new user
-	err := framework.POST("", CreateUser).
-		Summary("Create User").
-		Description("Creates a new user with the provided information. Requires valid API key and user data.").
-		Tags("Users").
-		Register(users)
-	if err != nil {
-		log.Fatalf("Failed to register POST /api/v1/users: %v", err)
-	}
+	handler.POST(users, "", CreateUser, func(eo handler.EndpointOptions) {
+		eo.SetSummary("Create User")
+		eo.SetDescription("Creates a new user with the provided information. Requires valid API key and user data.")
+		eo.SetTags("Users")
+	})
 
 	// GET /api/v1/users - List users
-	err = framework.GET("", ListUsers).
-		Summary("List Users").
-		Description("Retrieves a paginated list of users. Supports sorting and filtering.").
-		Tags("Users").
-		Register(users)
-	if err != nil {
-		log.Fatalf("Failed to register GET /api/v1/users: %v", err)
-	}
+	handler.GET(users, "", ListUsers, func(eo handler.EndpointOptions) {
+		eo.SetSummary("List Users")
+		eo.SetDescription("Retrieves a paginated list of users. Supports sorting and filtering.")
+		eo.SetTags("Users")
+	})
 
 	// GET /api/v1/users/{id} - Get a specific user
-	err = framework.GET("/{id}", GetUser).
-		Summary("Get User").
-		Description("Retrieves a specific user by their ID. Optionally includes detailed information.").
-		Tags("Users").
-		Register(users)
-	if err != nil {
-		log.Fatalf("Failed to register GET /api/v1/users/{id}: %v", err)
-	}
+	handler.GET(users, "/{id}", GetUser, func(eo handler.EndpointOptions) {
+		eo.SetSummary("Get User")
+		eo.SetDescription("Retrieves a specific user by their ID. Optionally includes detailed information.")
+		eo.SetTags("Users")
+	})
 
 	// PUT /api/v1/users/{id} - Update a user
-	err = framework.PUT("/{id}", UpdateUser).
-		Summary("Update User").
-		Description("Updates an existing user's information. All fields are optional.").
-		Tags("Users").
-		Register(users)
-	if err != nil {
-		log.Fatalf("Failed to register PUT /api/v1/users/{id}: %v", err)
-	}
+	handler.PUT(users, "/{id}", UpdateUser, func(eo handler.EndpointOptions) {
+		eo.SetSummary("Update User")
+		eo.SetDescription("Updates an existing user's information. All fields are optional.")
+		eo.SetTags("Users")
+	})
 
 	// DELETE /api/v1/users/{id} - Delete a user
-	err = framework.DELETE("/{id}", DeleteUser).
-		Summary("Delete User").
-		Description("Deletes a user by their ID. Use force=true to override dependency checks.").
-		Tags("Users").
-		Register(users)
-	if err != nil {
-		log.Fatalf("Failed to register DELETE /api/v1/users/{id}: %v", err)
-	}
+	handler.DELETE(users, "/{id}", DeleteUser, func(eo handler.EndpointOptions) {
+		eo.SetSummary("Delete User")
+		eo.SetDescription("Deletes a user by their ID. Use force=true to override dependency checks.")
+		eo.SetTags("Users")
+	})
 
 	// POST /api/v1/users/{id}/avatar - Upload user avatar
-	err = framework.POST("/{id}/avatar", UploadAvatar).
-		Summary("Upload User Avatar").
-		Description("Uploads an avatar image for a user. Accepts multipart/form-data with 'avatar' field.").
-		Tags("Users").
-		Register(users)
-	if err != nil {
-		log.Fatalf("Failed to register POST /api/v1/users/{id}/avatar: %v", err)
-	}
+	handler.POST(users, "/{id}/avatar", UploadAvatar, func(eo handler.EndpointOptions) {
+		eo.SetSummary("Upload User Avatar")
+		eo.SetDescription("Uploads an avatar image for a user. Accepts multipart/form-data with 'avatar' field.")
+		eo.SetTags("Users")
+	})
 
 	// Register OpenAPI documentation endpoints on the root (not in the group)
 	openapi := openapi.NewOpenApi(app)
-	err = openapi.RegisterOpenAPIDocs(
+	openapi.RegisterOpenAPIDocs(
 		"User API (Type-Safe)",
 		"A fully type-safe API with compile-time guarantees using Go generics and route grouping",
 		"1.0.0",
 		"/openapi.json",
 		"/docs",
 	)
-	if err != nil {
-		log.Fatalf("Failed to register OpenAPI documentation: %v", err)
-	}
 
 	// Start server
 	fmt.Println("🚀 Type-Safe API Server starting on :8080")

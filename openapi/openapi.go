@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/RottenNinja-Go/framework"
+	"github.com/RottenNinja-Go/framework/handler"
 )
 
 // OpenAPISpec represents the OpenAPI 3.0 specification
@@ -117,7 +118,7 @@ func (f *OpenApi) GenerateOpenAPI(title, description, version string) *OpenAPISp
 
 	// Generate paths from endpoints
 	for _, endpoint := range f.f.GetEndpoints() {
-		pathItem, ok := spec.Paths[endpoint.Path]
+		pathItem, ok := spec.Paths[endpoint.FullPath]
 		if !ok {
 			pathItem = PathItem{}
 		}
@@ -137,7 +138,7 @@ func (f *OpenApi) GenerateOpenAPI(title, description, version string) *OpenAPISp
 			pathItem.Delete = operation
 		}
 
-		spec.Paths[endpoint.Path] = pathItem
+		spec.Paths[endpoint.FullPath] = pathItem
 	}
 
 	return spec
@@ -557,13 +558,11 @@ func (f *OpenApi) RegisterOpenAPIDocs(title, description, version, specPath, doc
 		return spec, nil
 	}
 
-	if err := framework.GET(specPath, specHandler).
-		Summary("OpenAPI Specification").
-		Description("Returns the OpenAPI 3.0 specification for this API").
-		Tags("Documentation").
-		Register(f.f); err != nil {
-		return fmt.Errorf("failed to register OpenAPI spec endpoint: %w", err)
-	}
+	handler.GET(f.f, specPath, specHandler, func(eo handler.EndpointOptions) {
+		eo.SetSummary("OpenAPI Specification")
+		eo.SetDescription("Returns the OpenAPI 3.0 specification for this API")
+		eo.SetTags("Documentation")
+	})
 
 	// Register Swagger UI endpoint
 	uiHandler := func(ctx context.Context, _ framework.NoRequest) (SwaggerUIResponse, error) {
@@ -598,13 +597,11 @@ func (f *OpenApi) RegisterOpenAPIDocs(title, description, version, specPath, doc
 		return SwaggerUIResponse{html: html}, nil
 	}
 
-	if err := framework.GET(docsPath, uiHandler).
-		Summary("API Documentation").
-		Description("Interactive API documentation using Swagger UI").
-		Tags("Documentation").
-		Register(f.f); err != nil {
-		return fmt.Errorf("failed to register Swagger UI endpoint: %w", err)
-	}
+	handler.GET(f.f, docsPath, uiHandler, func(eo handler.EndpointOptions) {
+		eo.SetSummary("API Documentation")
+		eo.SetDescription("Interactive API documentation using Swagger UI")
+		eo.SetTags("Documentation")
+	})
 
 	return nil
 }
