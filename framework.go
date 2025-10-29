@@ -65,10 +65,10 @@ type Handler[Req any, Resp any] func(ctx context.Context, req Req) (Resp, error)
 // It receives the next handler and returns a new handler that can wrap it
 type Middleware func(next http.Handler) http.Handler
 
-type HandlerRoute[TReq any, TResp any] struct {
-	*EndpointSpec
-	Handler func(ctx context.Context, req TReq) (TResp, error)
-}
+// type HandlerRoute[TReq any, TResp any] struct {
+// 	*EndpointSpec
+// 	Handler func(ctx context.Context, req TReq) (TResp, error)
+// }
 
 // EndpointSpec defines the specification for an endpoint
 type EndpointSpec struct {
@@ -81,7 +81,11 @@ type EndpointSpec struct {
 	RequestType  reflect.Type
 	ResponseType reflect.Type
 	Middlewares  []Middleware
+
+	AllMiddlewares []Middleware
+	handlerPrepFn  func(*Framework) http.HandlerFunc
 	// handlerFunc  http.HandlerFunc
+
 }
 
 // fieldParser holds pre-computed parsing logic for a field
@@ -213,43 +217,56 @@ func (g *Group) Group(prefix string) *Group {
 }
 
 // registerWithMiddleware registers a new endpoint with type-safe handler and middleware
-func RegisterHandlerRoute[Req any, Resp any](router Router, route *HandlerRoute[Req, Resp]) {
-
-	f := router.getFramework()
-
-	// Combine group middlewares with endpoint-specific middlewares
-	// Group middlewares should be applied first (outermost)
-	allMiddlewares := append(router.getMiddlewares(), route.Middlewares...)
-
-	// Combine group prefix with endpoint path
-	route.FullPath = router.getPrefix() + route.RelativePath
+func CreateEndpoint[TReq any, TResp any](method, path string, handler func(ctx context.Context, req TReq) (TResp, error)) *EndpointSpec {
+	route := &EndpointSpec{
+		Method:       method,
+		RelativePath: path,
+	}
 
 	// Get request and response types for OpenAPI generation
-	var reqExample Req
+	var reqExample TReq
 	route.RequestType = reflect.TypeOf(reqExample)
 
-	var respExample Resp
+	var respExample TResp
 	route.ResponseType = reflect.TypeOf(respExample)
 
 	// Build request parser plan at registration time (expensive reflection here)
 	parser := buildRequestParser(route.RequestType)
 
 	// Create HTTP handler function with pre-computed parser
-	httpHandler := createTypeSafeHandler(f, route.Handler, parser)
+	route.handlerPrepFn = func(f *Framework) http.HandlerFunc { return createTypeSafeHandler(f, handler, parser) }
+	return route
+}
+
+func RegisterEndpoint(router Router, route *EndpointSpec) {
+	f := router.getFramework()
+
+	// Combine group middlewares with endpoint-specific middlewares
+	// Group middlewares should be applied first (outermost)
+	route.AllMiddlewares = append(router.getMiddlewares(), route.Middlewares...)
+
+	// Combine group prefix with endpoint path
+	route.FullPath = router.getPrefix() + route.RelativePath
 
 	// Apply middleware in reverse order (so first middleware added is outermost)
-	var finalHandler http.Handler = httpHandler
-	for i := len(allMiddlewares) - 1; i >= 0; i-- {
-		finalHandler = allMiddlewares[i](finalHandler)
+	var finalHandler http.Handler = route.handlerPrepFn(f)
+	for i := len(route.AllMiddlewares) - 1; i >= 0; i-- {
+		finalHandler = route.AllMiddlewares[i](finalHandler)
 	}
 	// route.handlerFunc = finalHandler.ServeHTTP
 
-	f.endpoints = append(f.endpoints, route.EndpointSpec)
+	f.endpoints = append(f.endpoints, route)
 
 	// Register with ServeMux using method and path pattern
 	// Go 1.22+ supports patterns like "GET /users/{id}"
 	pattern := route.Method + " " + route.FullPath
 	f.mux.Handle(pattern, finalHandler)
+}
+
+// registerWithMiddleware registers a new endpoint with type-safe handler and middleware
+func RegisterHandlerRoute[TReq any, TResp any](router Router, method, path string, handler func(ctx context.Context, req TReq) (TResp, error)) {
+	ep := CreateEndpoint(method, path, handler)
+	RegisterEndpoint(router, ep)
 }
 
 // buildRequestParser builds a pre-computed parser plan for a request type
