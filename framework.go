@@ -65,10 +65,17 @@ type Handler[Req any, Resp any] func(ctx context.Context, req Req) (Resp, error)
 // It receives the next handler and returns a new handler that can wrap it
 type Middleware func(next http.Handler) http.Handler
 
-// type HandlerRoute[TReq any, TResp any] struct {
-// 	*EndpointSpec
-// 	Handler func(ctx context.Context, req TReq) (TResp, error)
-// }
+//	type HandlerRoute[TReq any, TResp any] struct {
+//		*EndpointSpec
+//		Handler func(ctx context.Context, req TReq) (TResp, error)
+//	}
+type Endpoint interface {
+	SetSummary(summary string)
+	SetDescription(description string)
+	Use(middleware ...Middleware)
+	SetTags(tags ...string)
+	getSpec() *EndpointSpec
+}
 
 // EndpointSpec defines the specification for an endpoint
 type EndpointSpec struct {
@@ -85,7 +92,31 @@ type EndpointSpec struct {
 	AllMiddlewares []Middleware
 	handlerPrepFn  func(*Framework) http.HandlerFunc
 	// handlerFunc  http.HandlerFunc
+}
 
+// Summary sets the endpoint summary
+func (b *EndpointSpec) SetSummary(summary string) {
+	b.Summary = summary
+}
+
+// Description sets the endpoint description
+func (b *EndpointSpec) SetDescription(description string) {
+	b.Description = description
+}
+
+// Tags sets the endpoint tags
+func (b *EndpointSpec) SetTags(tags ...string) {
+	b.Tags = tags
+}
+
+// Use adds one or more middleware functions to the endpoint
+// Middleware is applied in the order it's added (first added = outermost wrapper)
+// Example: Use(logging, auth, ratelimit) wraps as logging(auth(ratelimit(handler)))
+func (b *EndpointSpec) Use(middleware ...Middleware) {
+	b.Middlewares = append(b.Middlewares, middleware...)
+}
+func (b *EndpointSpec) getSpec() *EndpointSpec {
+	return b
 }
 
 // fieldParser holds pre-computed parsing logic for a field
@@ -217,7 +248,7 @@ func (g *Group) Group(prefix string) *Group {
 }
 
 // registerWithMiddleware registers a new endpoint with type-safe handler and middleware
-func CreateEndpoint[TReq any, TResp any](method, path string, handler func(ctx context.Context, req TReq) (TResp, error)) *EndpointSpec {
+func CreateEndpoint[TReq any, TResp any](method, path string, handler func(ctx context.Context, req TReq) (TResp, error)) Endpoint {
 	route := &EndpointSpec{
 		Method:       method,
 		RelativePath: path,
@@ -238,7 +269,9 @@ func CreateEndpoint[TReq any, TResp any](method, path string, handler func(ctx c
 	return route
 }
 
-func RegisterEndpoint(router Router, route *EndpointSpec) {
+func RegisterEndpoint(router Router, e Endpoint) {
+	route := e.getSpec()
+
 	f := router.getFramework()
 
 	// Combine group middlewares with endpoint-specific middlewares
@@ -263,9 +296,10 @@ func RegisterEndpoint(router Router, route *EndpointSpec) {
 	f.mux.Handle(pattern, finalHandler)
 }
 
-// registerWithMiddleware registers a new endpoint with type-safe handler and middleware
-func RegisterHandlerRoute[TReq any, TResp any](router Router, method, path string, handler func(ctx context.Context, req TReq) (TResp, error)) {
+// RegisterHandlerRoute registers a new endpoint with type-safe handler and middleware
+func RegisterHandlerRoute[TReq any, TResp any](router Router, method, path string, handler func(ctx context.Context, req TReq) (TResp, error), callBackFn func(Endpoint)) {
 	ep := CreateEndpoint(method, path, handler)
+	callBackFn(ep)
 	RegisterEndpoint(router, ep)
 }
 
