@@ -26,11 +26,13 @@ go get github.com/RottenNinja-Go/framework
 package main
 
 import (
+    "context"
     "fmt"
     "net/http"
     "log"
 
     "github.com/RottenNinja-Go/framework"
+    "github.com/RottenNinja-Go/framework/handler"
     "github.com/RottenNinja-Go/framework/openapi"
 )
 
@@ -62,12 +64,12 @@ func CreateUser(ctx context.Context, req CreateUserRequest) (CreateUserResponse,
 func main() {
     app := framework.New()
 
-    // Register endpoint with fluent API
-    framework.POST("/users", CreateUser).
-        Summary("Create User").
-        Description("Creates a new user").
-        Tags("Users").
-        Register(app)
+    // Register endpoint with callback API
+    handler.POST(app, "/users", CreateUser, func(eo handler.EndpointOptions) {
+        eo.SetSummary("Create User")
+        eo.SetDescription("Creates a new user")
+        eo.SetTags("Users")
+    })
 
     // Register OpenAPI docs
     openapi := openapi.NewOpenApi(app)
@@ -95,7 +97,7 @@ type GetUserRequest struct {
 }
 
 // Matches: GET /users/{id}
-framework.GET("/users/{id}", GetUser).Register(app)
+handler.GET(app, "/users/{id}", GetUser, func(eo handler.EndpointOptions) {})
 ```
 
 ### Query Parameters
@@ -108,7 +110,7 @@ type ListUsersRequest struct {
 }
 
 // Matches: GET /users?page=1&page_size=10&sort_by=name
-framework.GET("/users", ListUsers).Register(app)
+handler.GET(app, "/users", ListUsers, func(eo handler.EndpointOptions) {})
 ```
 
 ### Query Arrays
@@ -123,7 +125,7 @@ type FilterUsersRequest struct {
 }
 
 // Matches: GET /users?tags=admin&tags=premium&status=active&id=1&id=2&id=3
-framework.GET("/users/filter", FilterUsers).Register(app)
+handler.GET(app, "/users/filter", FilterUsers, func(eo handler.EndpointOptions) {})
 
 // In your handler:
 func FilterUsers(ctx context.Context, req FilterUsersRequest) (Response, error) {
@@ -174,6 +176,7 @@ Handle file uploads with type-safe multipart form data:
 
 ```go
 import "github.com/RottenNinja-Go/framework"
+import "github.com/RottenNinja-Go/framework"
 
 type UploadAvatarRequest struct {
     UserID string               `route:"id" validate:"required"`
@@ -219,11 +222,11 @@ func UploadAvatar(ctx context.Context, req UploadAvatarRequest) (UploadAvatarRes
 }
 
 // Register the endpoint
-framework.POST("/users/{id}/avatar", UploadAvatar).
-    Summary("Upload User Avatar").
-    Description("Upload an avatar image for a user").
-    Tags("Users").
-    Register(app)
+handler.POST(app, "/users/{id}/avatar", UploadAvatar, func(eo handler.EndpointOptions) {
+    eo.SetSummary("Upload User Avatar")
+    eo.SetDescription("Upload an avatar image for a user")
+    eo.SetTags("Users")
+})
 ```
 
 **FileField Properties:**
@@ -323,38 +326,38 @@ When validation fails, the framework automatically returns a structured error:
 
 ## HTTP Methods
 
-The framework supports all standard HTTP methods with a fluent API:
+The framework supports all standard HTTP methods with a callback-based API:
 
 ```go
 // GET request
-framework.GET("/users", ListUsers).
-    Summary("List Users").
-    Tags("Users").
-    Register(app)
+handler.GET(app, "/users", ListUsers, func(eo handler.EndpointOptions) {
+    eo.SetSummary("List Users")
+    eo.SetTags("Users")
+})
 
 // POST request
-framework.POST("/users", CreateUser).
-    Summary("Create User").
-    Tags("Users").
-    Register(app)
+handler.POST(app, "/users", CreateUser, func(eo handler.EndpointOptions) {
+    eo.SetSummary("Create User")
+    eo.SetTags("Users")
+})
 
 // PUT request
-framework.PUT("/users/{id}", UpdateUser).
-    Summary("Update User").
-    Tags("Users").
-    Register(app)
+handler.PUT(app, "/users/{id}", UpdateUser, func(eo handler.EndpointOptions) {
+    eo.SetSummary("Update User")
+    eo.SetTags("Users")
+})
 
 // PATCH request
-framework.PATCH("/users/{id}", PatchUser).
-    Summary("Patch User").
-    Tags("Users").
-    Register(app)
+handler.PATCH(app, "/users/{id}", PatchUser, func(eo handler.EndpointOptions) {
+    eo.SetSummary("Patch User")
+    eo.SetTags("Users")
+})
 
 // DELETE request
-framework.DELETE("/users/{id}", DeleteUser).
-    Summary("Delete User").
-    Tags("Users").
-    Register(app)
+handler.DELETE(app, "/users/{id}", DeleteUser, func(eo handler.EndpointOptions) {
+    eo.SetSummary("Delete User")
+    eo.SetTags("Users")
+})
 ```
 
 ## Route Groups
@@ -373,11 +376,11 @@ users := api.Group("/users").Use(AuthMiddleware)
 // All routes registered on 'users' will be prefixed with /api/v1/users
 // and have both logging and auth middleware applied
 
-framework.GET("", ListUsers).Register(users)          // GET /api/v1/users
-framework.POST("", CreateUser).Register(users)        // POST /api/v1/users
-framework.GET("/{id}", GetUser).Register(users)       // GET /api/v1/users/{id}
-framework.PUT("/{id}", UpdateUser).Register(users)    // PUT /api/v1/users/{id}
-framework.DELETE("/{id}", DeleteUser).Register(users) // DELETE /api/v1/users/{id}
+handler.GET(users, "", ListUsers, func(eo handler.EndpointOptions) {})          // GET /api/v1/users
+handler.POST(users, "", CreateUser, func(eo handler.EndpointOptions) {})        // POST /api/v1/users
+handler.GET(users, "/{id}", GetUser, func(eo handler.EndpointOptions) {})       // GET /api/v1/users/{id}
+handler.PUT(users, "/{id}", UpdateUser, func(eo handler.EndpointOptions) {})    // PUT /api/v1/users/{id}
+handler.DELETE(users, "/{id}", DeleteUser, func(eo handler.EndpointOptions) {}) // DELETE /api/v1/users/{id}
 ```
 
 ### Nested Groups
@@ -391,7 +394,7 @@ users := v1.Group("/users")
 admin := users.Group("/admin")
 
 // Routes in 'admin' group will have prefix /api/v1/users/admin
-framework.GET("", ListAdminUsers).Register(admin) // GET /api/v1/users/admin
+handler.GET(admin, "", ListAdminUsers, func(eo handler.EndpointOptions) {}) // GET /api/v1/users/admin
 ```
 
 ## Middleware
@@ -418,12 +421,18 @@ users := api.Group("/users").Use(AuthMiddleware)
 
 ### Endpoint-Level Middleware
 
-Applied to specific endpoints:
+Applied to specific endpoints using the `EndpointBuilder`:
 
 ```go
-framework.GET("/admin/users", ListUsers).
-    Use(AdminMiddleware, RateLimitMiddleware).
-    Register(app)
+import "github.com/RottenNinja-Go/framework/handler"
+
+handler.GET(app, "/admin/users", ListUsers, func(eo handler.EndpointOptions) {
+    // Cast to *EndpointBuilder to access middleware methods
+    if eb, ok := eo.(*handler.EndpointBuilder[ListUsersRequest, ListUsersResponse]); ok {
+        eb.Use(AdminMiddleware, RateLimitMiddleware)
+    }
+    eo.SetSummary("List Users")
+})
 ```
 
 ### Writing Middleware
@@ -485,11 +494,11 @@ Add documentation to your endpoints and fields:
 
 ```go
 // Endpoint documentation
-framework.POST("/users", CreateUser).
-    Summary("Create a new user").
-    Description("Creates a user with the provided information. Requires authentication.").
-    Tags("Users", "Management").
-    Register(app)
+handler.POST(app, "/users", CreateUser, func(eo handler.EndpointOptions) {
+    eo.SetSummary("Create a new user")
+    eo.SetDescription("Creates a user with the provided information. Requires authentication.")
+    eo.SetTags("Users", "Management")
+})
 
 // Field documentation
 type CreateUserRequest struct {
@@ -551,11 +560,13 @@ Here's a complete example showing all features:
 package main
 
 import (
+    "context"
     "fmt"
     "log"
     "net/http"
 
     "github.com/RottenNinja-Go/framework"
+    "github.com/RottenNinja-Go/framework/handler"
     "github.com/RottenNinja-Go/framework/openapi"
 )
 
@@ -682,23 +693,23 @@ func main() {
     usersGroup := api.Group("/users").Use(AuthMiddleware)
 
     // Register endpoints
-    framework.POST("", CreateUser).
-        Summary("Create User").
-        Description("Creates a new user").
-        Tags("Users").
-        Register(usersGroup)
+    handler.POST(usersGroup, "", CreateUser, func(eo handler.EndpointOptions) {
+        eo.SetSummary("Create User")
+        eo.SetDescription("Creates a new user")
+        eo.SetTags("Users")
+    })
 
-    framework.GET("", ListUsers).
-        Summary("List Users").
-        Description("Returns a paginated list of users").
-        Tags("Users").
-        Register(usersGroup)
+    handler.GET(usersGroup, "", ListUsers, func(eo handler.EndpointOptions) {
+        eo.SetSummary("List Users")
+        eo.SetDescription("Returns a paginated list of users")
+        eo.SetTags("Users")
+    })
 
-    framework.GET("/{id}", GetUser).
-        Summary("Get User").
-        Description("Retrieves a specific user by ID").
-        Tags("Users").
-        Register(usersGroup)
+    handler.GET(usersGroup, "/{id}", GetUser, func(eo handler.EndpointOptions) {
+        eo.SetSummary("Get User")
+        eo.SetDescription("Retrieves a specific user by ID")
+        eo.SetTags("Users")
+    })
 
     // Register OpenAPI documentation
     openapi := openapi.NewOpenApi(app)
@@ -730,6 +741,7 @@ import (
     "net/http"
 
     "github.com/RottenNinja-Go/framework"
+    "github.com/RottenNinja-Go/framework/handler"
 )
 
 // Request with both query arrays and file upload
@@ -781,11 +793,11 @@ func ProcessImages(ctx context.Context, req ProcessImagesRequest) (ProcessImages
 func main() {
     app := framework.New()
 
-    framework.POST("/images/process", ProcessImages).
-        Summary("Process Image").
-        Description("Upload and process an image with tags and categories").
-        Tags("Images").
-        Register(app)
+    handler.POST(app, "/images/process", ProcessImages, func(eo handler.EndpointOptions) {
+        eo.SetSummary("Process Image")
+        eo.SetDescription("Upload and process an image with tags and categories")
+        eo.SetTags("Images")
+    })
 
     http.ListenAndServe(":8080", app)
 }
@@ -907,18 +919,26 @@ func (g *Group) Use(middleware ...Middleware) *Group
 func (g *Group) Group(prefix string) *Group
 ```
 
-### Endpoint Builder Methods
+### Endpoint Handler Functions
 
 ```go
 // HTTP method functions (GET, POST, PUT, PATCH, DELETE)
-func GET[Req, Resp any](path string, handler Handler[Req, Resp]) *EndpointBuilder[Req, Resp]
+// All accept a router (Framework or Group), path, handler, and options callback
+func GET[Req, Resp any](r Router, path string, handler Handler[Req, Resp], optFn func(EndpointOptions))
+func POST[Req, Resp any](r Router, path string, handler Handler[Req, Resp], optFn func(EndpointOptions))
+func PUT[Req, Resp any](r Router, path string, handler Handler[Req, Resp], optFn func(EndpointOptions))
+func PATCH[Req, Resp any](r Router, path string, handler Handler[Req, Resp], optFn func(EndpointOptions))
+func DELETE[Req, Resp any](r Router, path string, handler Handler[Req, Resp], optFn func(EndpointOptions))
 
-// Fluent API methods
-func (b *EndpointBuilder) Summary(summary string) *EndpointBuilder
-func (b *EndpointBuilder) Description(description string) *EndpointBuilder
-func (b *EndpointBuilder) Tags(tags ...string) *EndpointBuilder
-func (b *EndpointBuilder) Use(middleware ...Middleware) *EndpointBuilder
-func (b *EndpointBuilder) Register(router Router) error
+// EndpointOptions interface for configuration
+type EndpointOptions interface {
+    SetSummary(summary string)
+    SetDescription(description string)
+    SetTags(tags ...string)
+}
+
+// EndpointBuilder provides additional methods (cast from EndpointOptions)
+func (b *EndpointBuilder[Req, Resp]) Use(middleware ...Middleware)
 ```
 
 ## Performance
