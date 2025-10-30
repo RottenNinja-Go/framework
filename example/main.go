@@ -21,14 +21,16 @@ type User struct {
 
 // CreateUserRequest represents the request for creating a user
 type CreateUserRequest struct {
-	APIKey      string `header:"X-API-Key" validate:"required" doc:"API authentication key"`
-	ContentType string `header:"Content-Type" validate:"required,eq=application/json" doc:"Must be application/json"`
+	Header struct {
+		APIKey      string `json:"X-API-Key" validate:"required" doc:"API authentication key"`
+		ContentType string `json:"Content-Type" validate:"required,eq=application/json" doc:"Must be application/json"`
+	}
 
 	Body struct {
 		Name  string `json:"name" validate:"required,min=3,max=50" doc:"User's full name"`
 		Email string `json:"email" validate:"required,email" doc:"User's email address"`
 		Age   int    `json:"age" validate:"required,min=18,max=120" doc:"User's age (must be 18 or older)"`
-	} `body:"" validate:"required" doc:"User data to create"`
+	}
 }
 
 // CreateUserResponse represents the response for creating a user
@@ -38,9 +40,15 @@ type CreateUserResponse struct {
 
 // GetUserRequest represents the request for getting a user
 type GetUserRequest struct {
-	UserID         string `route:"id" validate:"required" doc:"User ID"`
-	APIKey         string `header:"X-API-Key" validate:"required" doc:"API authentication key"`
-	IncludeDetails bool   `query:"include_details" doc:"Include detailed user information"`
+	Route struct {
+		UserID string `json:"id" validate:"required" doc:"User ID"`
+	}
+	Header struct {
+		APIKey string `json:"X-API-Key" validate:"required" doc:"API authentication key"`
+	}
+	Query struct {
+		IncludeDetails bool `json:"include_details" doc:"Include detailed user information"`
+	}
 }
 
 // GetUserResponse represents the response for getting a user
@@ -51,14 +59,18 @@ type GetUserResponse struct {
 
 // UpdateUserRequest represents the request for updating a user
 type UpdateUserRequest struct {
-	UserID string `route:"id" validate:"required" doc:"User ID"`
-	APIKey string `header:"X-API-Key" validate:"required" doc:"API authentication key"`
+	Route struct {
+		UserID string `json:"id" validate:"required" doc:"User ID"`
+	}
+	Header struct {
+		APIKey string `json:"X-API-Key" validate:"required" doc:"API authentication key"`
+	}
 
 	Body struct {
 		Name  string `json:"name,omitempty" validate:"omitempty,min=3,max=50" doc:"User's full name"`
 		Email string `json:"email,omitempty" validate:"omitempty,email" doc:"User's email address"`
 		Age   int    `json:"age,omitempty" validate:"omitempty,min=18,max=120" doc:"User's age"`
-	} `body:"" validate:"required" doc:"User data to update"`
+	}
 }
 
 // UpdateUserResponse represents the response for updating a user
@@ -68,9 +80,15 @@ type UpdateUserResponse struct {
 
 // DeleteUserRequest represents the request for deleting a user
 type DeleteUserRequest struct {
-	UserID string `route:"id" validate:"required" doc:"User ID"`
-	APIKey string `header:"X-API-Key" validate:"required" doc:"API authentication key"`
-	Force  bool   `query:"force" doc:"Force delete even if user has dependencies"`
+	Route struct {
+		UserID string `json:"id" validate:"required" doc:"User ID"`
+	}
+	Header struct {
+		APIKey string `json:"X-API-Key" validate:"required" doc:"API authentication key"`
+	}
+	Query struct {
+		Force bool `json:"force" doc:"Force delete even if user has dependencies"`
+	}
 }
 
 // DeleteUserResponse represents an empty response (will return 204)
@@ -78,12 +96,16 @@ type DeleteUserResponse struct{}
 
 // ListUsersRequest represents the request for listing users
 type ListUsersRequest struct {
-	APIKey   string   `header:"X-API-Key" validate:"required" doc:"API authentication key"`
-	Page     int      `query:"page" header:"page" validate:"required,omitempty,min=1" doc:"Page number (default: 1)"`
-	PageSize int      `query:"page_size" validate:"omitempty,min=1,max=100" doc:"Items per page (default: 10, max: 100)"`
-	SortBy   string   `query:"sort_by" validate:"omitempty,oneof=name email age created_at" doc:"Field to sort by"`
-	Order    string   `query:"order" validate:"omitempty,oneof=asc desc" doc:"Sort order (asc or desc)"`
-	Tags     []string `query:"tags" doc:"Filter by tags (can specify multiple: ?tags=admin&tags=premium)"`
+	Header struct {
+		APIKey string `json:"X-API-Key" validate:"required" doc:"API authentication key"`
+	}
+	Query struct {
+		Page     int      `json:"page" validate:"omitempty,min=1" doc:"Page number (default: 1)"`
+		PageSize int      `json:"page_size" validate:"omitempty,min=1,max=100" doc:"Items per page (default: 10, max: 100)"`
+		SortBy   string   `json:"sort_by" validate:"omitempty,oneof=name email age created_at" doc:"Field to sort by"`
+		Order    string   `json:"order" validate:"omitempty,oneof=asc desc" doc:"Sort order (asc or desc)"`
+		Tags     []string `json:"tags" doc:"Filter by tags (can specify multiple: ?tags=admin&tags=premium)"`
+	}
 }
 
 // ListUsersResponse represents the response for listing users
@@ -94,9 +116,15 @@ type ListUsersResponse struct {
 
 // UploadAvatarRequest represents the request for uploading a user avatar
 type UploadAvatarRequest struct {
-	UserID string              `route:"id" validate:"required" doc:"User ID"`
-	APIKey string              `header:"X-API-Key" validate:"required" doc:"API authentication key"`
-	Avatar framework.FileField `form:"avatar" validate:"required" doc:"Avatar image file"`
+	Route struct {
+		UserID string `json:"id" validate:"required" doc:"User ID"`
+	}
+	Header struct {
+		APIKey string `json:"X-API-Key" validate:"required" doc:"API authentication key"`
+	}
+	Form struct {
+		Avatar framework.FileField `json:"avatar" validate:"required" doc:"Avatar image file"`
+	}
 }
 
 // UploadAvatarResponse represents the response for uploading an avatar
@@ -212,7 +240,7 @@ func main() {
 // CreateUser handles user creation with full type safety
 func CreateUser(ctx context.Context, req CreateUserRequest) (CreateUserResponse, error) {
 	// Validate API key
-	if req.APIKey != "secret-key" {
+	if req.Header.APIKey != "secret-key" {
 		return CreateUserResponse{}, fmt.Errorf("invalid API key")
 	}
 
@@ -234,11 +262,11 @@ func CreateUser(ctx context.Context, req CreateUserRequest) (CreateUserResponse,
 // GetUser handles getting a specific user with type safety
 func GetUser(ctx context.Context, req GetUserRequest) (GetUserResponse, error) {
 	// Validate API key
-	if req.APIKey != "secret-key" {
+	if req.Header.APIKey != "secret-key" {
 		return GetUserResponse{}, fmt.Errorf("invalid API key")
 	}
 
-	user, exists := users[req.UserID]
+	user, exists := users[req.Route.UserID]
 	if !exists {
 		return GetUserResponse{}, fmt.Errorf("user not found")
 	}
@@ -248,7 +276,7 @@ func GetUser(ctx context.Context, req GetUserRequest) (GetUserResponse, error) {
 	}
 
 	// If include_details is true, add extra information
-	if req.IncludeDetails {
+	if req.Query.IncludeDetails {
 		response.Metadata = map[string]interface{}{
 			"created_at": "2024-01-01T00:00:00Z",
 			"updated_at": "2024-01-01T00:00:00Z",
@@ -261,11 +289,11 @@ func GetUser(ctx context.Context, req GetUserRequest) (GetUserResponse, error) {
 // UpdateUser handles updating a user with type safety
 func UpdateUser(ctx context.Context, req UpdateUserRequest) (UpdateUserResponse, error) {
 	// Validate API key
-	if req.APIKey != "secret-key" {
+	if req.Header.APIKey != "secret-key" {
 		return UpdateUserResponse{}, fmt.Errorf("invalid API key")
 	}
 
-	user, exists := users[req.UserID]
+	user, exists := users[req.Route.UserID]
 	if !exists {
 		return UpdateUserResponse{}, fmt.Errorf("user not found")
 	}
@@ -281,7 +309,7 @@ func UpdateUser(ctx context.Context, req UpdateUserRequest) (UpdateUserResponse,
 		user.Age = req.Body.Age
 	}
 
-	users[req.UserID] = user
+	users[req.Route.UserID] = user
 
 	return UpdateUserResponse{User: user}, nil
 }
@@ -289,16 +317,16 @@ func UpdateUser(ctx context.Context, req UpdateUserRequest) (UpdateUserResponse,
 // DeleteUser handles deleting a user with type safety
 func DeleteUser(ctx context.Context, req DeleteUserRequest) (DeleteUserResponse, error) {
 	// Validate API key
-	if req.APIKey != "secret-key" {
+	if req.Header.APIKey != "secret-key" {
 		return DeleteUserResponse{}, fmt.Errorf("invalid API key")
 	}
 
-	_, exists := users[req.UserID]
+	_, exists := users[req.Route.UserID]
 	if !exists {
 		return DeleteUserResponse{}, fmt.Errorf("user not found")
 	}
 
-	delete(users, req.UserID)
+	delete(users, req.Route.UserID)
 
 	// Return empty response (will result in 204 No Content)
 	return DeleteUserResponse{}, nil
@@ -307,17 +335,17 @@ func DeleteUser(ctx context.Context, req DeleteUserRequest) (DeleteUserResponse,
 // ListUsers handles listing users with pagination and type safety
 func ListUsers(ctx context.Context, req ListUsersRequest) (ListUsersResponse, error) {
 	// Validate API key
-	if req.APIKey != "secret-key" {
+	if req.Header.APIKey != "secret-key" {
 		return ListUsersResponse{}, fmt.Errorf("invalid API key")
 	}
 
 	// Set defaults
-	page := req.Page
+	page := req.Query.Page
 	if page == 0 {
 		page = 1
 	}
 
-	pageSize := req.PageSize
+	pageSize := req.Query.PageSize
 	if pageSize == 0 {
 		pageSize = 10
 	}
@@ -329,8 +357,8 @@ func ListUsers(ctx context.Context, req ListUsersRequest) (ListUsersResponse, er
 	}
 
 	// Demonstrate query array usage - log the tags if provided
-	if len(req.Tags) > 0 {
-		fmt.Printf("Filtering users by tags: %v\n", req.Tags)
+	if len(req.Query.Tags) > 0 {
+		fmt.Printf("Filtering users by tags: %v\n", req.Query.Tags)
 	}
 
 	return ListUsersResponse{
@@ -340,7 +368,7 @@ func ListUsers(ctx context.Context, req ListUsersRequest) (ListUsersResponse, er
 			"page_size":   pageSize,
 			"total":       len(userList),
 			"total_pages": (len(userList) + pageSize - 1) / pageSize,
-			"tags":        req.Tags,
+			"tags":        req.Query.Tags,
 		},
 	}, nil
 }
@@ -348,18 +376,18 @@ func ListUsers(ctx context.Context, req ListUsersRequest) (ListUsersResponse, er
 // UploadAvatar handles uploading a user avatar with file upload support
 func UploadAvatar(ctx context.Context, req UploadAvatarRequest) (UploadAvatarResponse, error) {
 	// Validate API key
-	if req.APIKey != "secret-key" {
+	if req.Header.APIKey != "secret-key" {
 		return UploadAvatarResponse{}, fmt.Errorf("invalid API key")
 	}
 
 	// Check if user exists
-	_, exists := users[req.UserID]
+	_, exists := users[req.Route.UserID]
 	if !exists {
 		return UploadAvatarResponse{}, fmt.Errorf("user not found")
 	}
 
 	// Close the file when done reading (important!)
-	defer req.Avatar.Content.Close()
+	defer req.Form.Avatar.Content.Close()
 
 	// In a real application, you would:
 	// 1. Validate file type (image/jpeg, image/png, etc.)
@@ -367,11 +395,11 @@ func UploadAvatar(ctx context.Context, req UploadAvatarRequest) (UploadAvatarRes
 	// 3. Save the file to storage (S3, local disk, etc.)
 	// 4. Update the user record with the avatar URL
 
-	fmt.Printf("Received avatar upload: %s (%d bytes)\n", req.Avatar.Filename, req.Avatar.Size)
+	fmt.Printf("Received avatar upload: %s (%d bytes)\n", req.Form.Avatar.Filename, req.Form.Avatar.Size)
 
 	return UploadAvatarResponse{
 		Message:  "Avatar uploaded successfully",
-		Filename: req.Avatar.Filename,
-		Size:     req.Avatar.Size,
+		Filename: req.Form.Avatar.Filename,
+		Size:     req.Form.Avatar.Size,
 	}, nil
 }

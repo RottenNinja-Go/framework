@@ -121,9 +121,11 @@ func (b *EndpointSpec) getSpec() *EndpointSpec {
 
 // fieldParser holds pre-computed parsing logic for a field
 type fieldParser struct {
-	fieldIndex int
-	fieldType  reflect.Type
-	fieldKind  reflect.Kind
+	fieldIndex       int
+	nestedFieldIndex int  // Index of the field within the nested struct
+	isNested         bool // True if this field is nested within Route/Header/Query/Form/Body
+	fieldType        reflect.Type
+	fieldKind        reflect.Kind
 
 	// Parsing configuration
 	sourceType string // "header", "route", "query", "body", "form"
@@ -320,15 +322,52 @@ func buildRequestParser(reqType reflect.Type) *requestParser {
 			continue
 		}
 
+		fieldName := field.Name
 		fieldKind := field.Type.Kind()
-		fieldType := field.Type
 
-		// Check if this field implements the FileUpload interface
-		fileUploadInterface := reflect.TypeOf((*FileUpload)(nil)).Elem()
-		isFileField := fieldType.Implements(fileUploadInterface)
+		// Check if this is a nested struct for Route, Header, Query, Form, or Body
+		if fieldKind == reflect.Struct {
+			switch fieldName {
+			case "Route":
+				parseNestedStruct(parser, field.Type, i, "route")
+			case "Header":
+				parseNestedStruct(parser, field.Type, i, "header")
+			case "Query":
+				parseNestedStruct(parser, field.Type, i, "query")
+			case "Form":
+				parseNestedStructForForm(parser, field.Type, i)
+			case "Body":
+				parser.hasBodyField = true
+				parser.bodyFieldIdx = i
+			}
+		}
+	}
 
-		// Check if this is a slice (for query arrays)
-		isSlice := fieldKind == reflect.Slice && !isFileField
+	return parser
+}
+
+// parseNestedStruct parses a nested struct (Route, Header, Query) and extracts fields using json tags
+func parseNestedStruct(parser *requestParser, structType reflect.Type, parentIndex int, sourceType string) {
+	for j := 0; j < structType.NumField(); j++ {
+		nestedField := structType.Field(j)
+
+		// Skip unexported fields
+		if !nestedField.IsExported() {
+			continue
+		}
+
+		// Get the json tag for the field name
+		jsonTag := nestedField.Tag.Get("json")
+		if jsonTag == "" {
+			// If no json tag, use the field name
+			jsonTag = nestedField.Name
+		}
+
+		fieldKind := nestedField.Type.Kind()
+		fieldType := nestedField.Type
+
+		// Check if this is a slice
+		isSlice := fieldKind == reflect.Slice
 
 		// For slices, get the element type for the setter
 		if isSlice {
@@ -338,65 +377,54 @@ func buildRequestParser(reqType reflect.Type) *requestParser {
 		// Create pre-computed setter for this field type
 		setter := createFieldSetter(fieldKind)
 
-		// Check for header tag
-		if headerTag := field.Tag.Get("header"); headerTag != "" {
-			parser.fieldParsers = append(parser.fieldParsers, fieldParser{
-				fieldIndex: i,
-				fieldType:  field.Type,
-				fieldKind:  fieldKind,
-				sourceType: "header",
-				sourceName: headerTag,
-				setter:     setter,
-				isSlice:    isSlice,
-			})
-		}
-
-		// Check for route tag
-		if routeTag := field.Tag.Get("route"); routeTag != "" {
-			parser.fieldParsers = append(parser.fieldParsers, fieldParser{
-				fieldIndex: i,
-				fieldType:  field.Type,
-				fieldKind:  fieldKind,
-				sourceType: "route",
-				sourceName: routeTag,
-				setter:     setter,
-			})
-		}
-
-		// Check for query tag
-		if queryTag := field.Tag.Get("query"); queryTag != "" {
-			parser.fieldParsers = append(parser.fieldParsers, fieldParser{
-				fieldIndex: i,
-				fieldType:  field.Type,
-				fieldKind:  fieldKind,
-				sourceType: "query",
-				sourceName: queryTag,
-				setter:     setter,
-				isSlice:    isSlice,
-			})
-		}
-
-		// Check for form tag (for file uploads)
-		if formTag := field.Tag.Get("form"); formTag != "" {
-			parser.fieldParsers = append(parser.fieldParsers, fieldParser{
-				fieldIndex:  i,
-				fieldType:   field.Type,
-				fieldKind:   fieldKind,
-				sourceType:  "form",
-				sourceName:  formTag,
-				setter:      nil, // File fields don't use the setter
-				isFileField: isFileField,
-			})
-		}
-
-		// Check for body tag
-		if _, hasBodyTag := field.Tag.Lookup("body"); hasBodyTag {
-			parser.hasBodyField = true
-			parser.bodyFieldIdx = i
-		}
+		parser.fieldParsers = append(parser.fieldParsers, fieldParser{
+			fieldIndex:       parentIndex,
+			nestedFieldIndex: j,
+			fieldType:        nestedField.Type,
+			fieldKind:        fieldKind,
+			sourceType:       sourceType,
+			sourceName:       jsonTag,
+			setter:           setter,
+			isSlice:          isSlice,
+			isNested:         true,
+		})
 	}
+}
 
-	return parser
+// parseNestedStructForForm parses a nested Form struct for file uploads
+func parseNestedStructForForm(parser *requestParser, structType reflect.Type, parentIndex int) {
+	fileUploadInterface := reflect.TypeOf((*FileUpload)(nil)).Elem()
+
+	for j := 0; j < structType.NumField(); j++ {
+		nestedField := structType.Field(j)
+
+		// Skip unexported fields
+		if !nestedField.IsExported() {
+			continue
+		}
+
+		// Get the json tag for the field name
+		jsonTag := nestedField.Tag.Get("json")
+		if jsonTag == "" {
+			// If no json tag, use the field name
+			jsonTag = nestedField.Name
+		}
+
+		// Check if this field implements the FileUpload interface
+		isFileField := nestedField.Type.Implements(fileUploadInterface)
+
+		parser.fieldParsers = append(parser.fieldParsers, fieldParser{
+			fieldIndex:       parentIndex,
+			nestedFieldIndex: j,
+			fieldType:        nestedField.Type,
+			fieldKind:        nestedField.Type.Kind(),
+			sourceType:       "form",
+			sourceName:       jsonTag,
+			setter:           nil, // File fields don't use the setter
+			isFileField:      isFileField,
+			isNested:         true,
+		})
+	}
 }
 
 // createFieldSetter creates a type-specific setter function at registration time
@@ -507,7 +535,17 @@ func writeResponse[Resp any](w http.ResponseWriter, response Resp) {
 func (f *Framework) parseWithPlan(r *http.Request, reqValue reflect.Value, parser *requestParser) error {
 	// Iterate through pre-computed field parsers (no reflection needed for tag lookup!)
 	for _, fp := range parser.fieldParsers {
-		fieldValue := reqValue.Field(fp.fieldIndex)
+		// Get the actual field value (either top-level or nested)
+		var fieldValue reflect.Value
+		if fp.isNested {
+			// Get the parent struct (Route, Header, Query, or Form)
+			parentField := reqValue.Field(fp.fieldIndex)
+			// Get the nested field within the parent struct
+			fieldValue = parentField.Field(fp.nestedFieldIndex)
+		} else {
+			// Old behavior for backward compatibility (should not be reached with new system)
+			fieldValue = reqValue.Field(fp.fieldIndex)
+		}
 
 		// Handle file uploads
 		if fp.sourceType == "form" && fp.isFileField {
@@ -543,11 +581,6 @@ func (f *Framework) parseWithPlan(r *http.Request, reqValue reflect.Value, parse
 			value = r.URL.Query().Get(fp.sourceName)
 			found = value != ""
 		}
-
-		// // Check required constraint
-		// if !found && fp.isRequired {
-		// 	return fmt.Errorf("%s '%s': required but missing", fp.sourceType, fp.sourceName)
-		// }
 
 		// Set field value using pre-computed setter (no type switch needed!)
 		if found && value != "" {
@@ -662,21 +695,28 @@ func (f *Framework) setSliceField(fieldValue reflect.Value, values []string, set
 // formatValidationError formats validator errors into a structured format
 func (f *Framework) formatValidationError(err error, parser *requestParser) []ValidationError {
 	if validationErrs, ok := err.(validator.ValidationErrors); ok {
-		// Build a map from struct field name to tag info (field name and source type)
+		// Build a map from struct path to tag info
+		// For nested structs, the key will be like "Route.UserID" or "Body.Name"
 		fieldTagMap := make(map[string]struct {
 			tagName    string
 			sourceType string
 		})
 
-		// Map field parsers to their struct field names
+		// Map field parsers to their struct field paths
 		for _, fp := range parser.fieldParsers {
-			structFieldName := parser.requestType.Field(fp.fieldIndex).Name
-			fieldTagMap[structFieldName] = struct {
-				tagName    string
-				sourceType string
-			}{
-				tagName:    fp.sourceName,
-				sourceType: fp.sourceType,
+			parentFieldName := parser.requestType.Field(fp.fieldIndex).Name
+			if fp.isNested {
+				// Get the nested struct type
+				parentType := parser.requestType.Field(fp.fieldIndex).Type
+				nestedFieldName := parentType.Field(fp.nestedFieldIndex).Name
+				structPath := parentFieldName + "." + nestedFieldName
+				fieldTagMap[structPath] = struct {
+					tagName    string
+					sourceType string
+				}{
+					tagName:    fp.sourceName,
+					sourceType: fp.sourceType,
+				}
 			}
 		}
 
@@ -700,42 +740,49 @@ func (f *Framework) formatValidationError(err error, parser *requestParser) []Va
 		fieldErrorMap := make(map[fieldKey][]string)
 
 		for _, e := range validationErrs {
-			structFieldName := e.Field()
 			errorMsg := fmt.Sprintf("failed validation: %s", e.Tag())
 
-			// Check if this is a nested field (e.g., Body.Name)
-			var actualFieldName string
-			var sourceType string
-
-			// Parse the namespace to determine if it's a nested field
+			// Parse the namespace to determine the field path
 			namespace := e.StructNamespace()
 			parts := splitFieldPath(namespace)
 
-			// Check if this is a nested field by checking if the namespace has more than 2 parts
-			// Format: "RequestName.FieldName" (2 parts) = top-level
-			// Format: "RequestName.Body.FieldName" (3+ parts) = nested in body
-			isBodyField := false
-			if parser.hasBodyField && len(parts) >= 3 {
-				bodyFieldName := parser.requestType.Field(parser.bodyFieldIdx).Name
-				// Check if the second part is the body field name
-				if len(parts) >= 3 && parts[1] == bodyFieldName {
-					isBodyField = true
-				}
-			}
+			var actualFieldName string
+			var sourceType string
 
-			if isBodyField {
-				// This is a nested field from the body
-				actualFieldName = e.Field() // Use the actual field name (e.g., "Name")
-				sourceType = "body"
-			} else {
-				// Top-level field - look it up in the fieldTagMap
-				if tagInfo, ok := fieldTagMap[structFieldName]; ok {
+			// Format: "RequestName.ParentField.NestedField" (3 parts) = nested field
+			// Format: "RequestName.Body.FieldName" (3+ parts) = body field
+			if len(parts) >= 3 {
+				parentFieldName := parts[1]
+				nestedFieldName := parts[2]
+				structPath := parentFieldName + "." + nestedFieldName
+
+				// Check if this is a Body field
+				if parser.hasBodyField {
+					bodyFieldName := parser.requestType.Field(parser.bodyFieldIdx).Name
+					if parentFieldName == bodyFieldName {
+						// This is a nested field in the body
+						actualFieldName = e.Field()
+						sourceType = "body"
+					} else if tagInfo, ok := fieldTagMap[structPath]; ok {
+						// This is a nested field in Route/Header/Query/Form
+						actualFieldName = tagInfo.tagName
+						sourceType = tagInfo.sourceType
+					} else {
+						actualFieldName = e.Field()
+						sourceType = ""
+					}
+				} else if tagInfo, ok := fieldTagMap[structPath]; ok {
+					// This is a nested field in Route/Header/Query/Form
 					actualFieldName = tagInfo.tagName
 					sourceType = tagInfo.sourceType
 				} else {
-					actualFieldName = structFieldName
+					actualFieldName = e.Field()
 					sourceType = ""
 				}
+			} else {
+				// Top-level field (shouldn't happen with new system, but keep for safety)
+				actualFieldName = e.Field()
+				sourceType = ""
 			}
 
 			key := fieldKey{name: actualFieldName, sourceType: sourceType}

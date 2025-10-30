@@ -193,80 +193,42 @@ func (f *OpenApi) generateOperation(endpoint *framework.EndpointSpec, schemas ma
 	for i := 0; i < reqType.NumField(); i++ {
 		field := reqType.Field(i)
 
-		// Parse headers
-		if headerTag := field.Tag.Get("header"); headerTag != "" {
-			param := Parameter{
-				Name:        headerTag,
-				In:          "header",
-				Description: field.Tag.Get("doc"),
-				Required:    strings.Contains(field.Tag.Get("validate"), "required"),
-				Schema:      f.reflectTypeToSchema(field.Type),
-			}
-			operation.Parameters = append(operation.Parameters, param)
+		// Skip unexported fields
+		if !field.IsExported() {
+			continue
 		}
 
-		// Parse route params
-		if routeTag := field.Tag.Get("route"); routeTag != "" {
-			param := Parameter{
-				Name:        routeTag,
-				In:          "path",
-				Description: field.Tag.Get("doc"),
-				Required:    true, // Path params are always required
-				Schema:      f.reflectTypeToSchema(field.Type),
-			}
-			operation.Parameters = append(operation.Parameters, param)
-		}
+		fieldName := field.Name
+		fieldKind := field.Type.Kind()
 
-		// Parse query params
-		if queryTag := field.Tag.Get("query"); queryTag != "" {
-			param := Parameter{
-				Name:        queryTag,
-				In:          "query",
-				Description: field.Tag.Get("doc"),
-				Required:    strings.Contains(field.Tag.Get("validate"), "required"),
-				Schema:      f.reflectTypeToSchema(field.Type),
-			}
-			operation.Parameters = append(operation.Parameters, param)
-		}
-
-		// Parse form fields (for file uploads and multipart data)
-		if formTag := field.Tag.Get("form"); formTag != "" {
-			hasFormFields = true
-
-			// Check if this field implements the FileUpload interface
-			fileUploadInterface := reflect.TypeOf((*framework.FileUpload)(nil)).Elem()
-			isFileField := field.Type.Implements(fileUploadInterface)
-
-			var fieldSchema *Schema
-			if isFileField {
-				// File upload field
-				fieldSchema = &Schema{
-					Type:   "string",
-					Format: "binary",
-				}
-			} else {
-				// Regular form field
-				fieldSchema = f.reflectTypeToSchema(field.Type)
-			}
-
-			formFields[formTag] = fieldSchema
-
-			if strings.Contains(field.Tag.Get("validate"), "required") {
-				formFieldsRequired = append(formFieldsRequired, formTag)
-			}
-		}
-
-		// Parse body
-		if _, hasBodyTag := field.Tag.Lookup("body"); hasBodyTag {
-			bodySchema := f.structToSchema(field.Type, schemas)
-			operation.RequestBody = &RequestBody{
-				Description: field.Tag.Get("doc"),
-				Required:    strings.Contains(field.Tag.Get("validate"), "required"),
-				Content: map[string]MediaType{
-					"application/json": {
-						Schema: bodySchema,
+		// Check if this is a nested struct for Route, Header, Query, Form, or Body
+		if fieldKind == reflect.Struct {
+			switch fieldName {
+			case "Route":
+				// Parse nested route parameters
+				f.parseNestedParameters(&operation.Parameters, field.Type, "path")
+			case "Header":
+				// Parse nested header parameters
+				f.parseNestedParameters(&operation.Parameters, field.Type, "header")
+			case "Query":
+				// Parse nested query parameters
+				f.parseNestedParameters(&operation.Parameters, field.Type, "query")
+			case "Form":
+				// Parse nested form fields
+				hasFormFields = true
+				f.parseNestedFormFields(&formFields, &formFieldsRequired, field.Type)
+			case "Body":
+				// Parse body
+				bodySchema := f.structToSchema(field.Type, schemas)
+				operation.RequestBody = &RequestBody{
+					Description: "Request body",
+					Required:    true,
+					Content: map[string]MediaType{
+						"application/json": {
+							Schema: bodySchema,
+						},
 					},
-				},
+				}
 			}
 		}
 	}
@@ -289,6 +251,76 @@ func (f *OpenApi) generateOperation(endpoint *framework.EndpointSpec, schemas ma
 	}
 
 	return operation
+}
+
+// parseNestedParameters parses nested struct fields and converts them to OpenAPI parameters
+func (f *OpenApi) parseNestedParameters(parameters *[]Parameter, structType reflect.Type, paramIn string) {
+	for i := 0; i < structType.NumField(); i++ {
+		field := structType.Field(i)
+
+		// Skip unexported fields
+		if !field.IsExported() {
+			continue
+		}
+
+		// Get the json tag for the parameter name
+		jsonTag := field.Tag.Get("json")
+		paramName := field.Name
+		if jsonTag != "" {
+			paramName = jsonTag
+		}
+
+		param := Parameter{
+			Name:        paramName,
+			In:          paramIn,
+			Description: field.Tag.Get("doc"),
+			Required:    strings.Contains(field.Tag.Get("validate"), "required2") || paramIn == "path",
+			Schema:      f.reflectTypeToSchema(field.Type),
+		}
+		*parameters = append(*parameters, param)
+	}
+}
+
+// parseNestedFormFields parses nested Form struct fields and converts them to form field schemas
+func (f *OpenApi) parseNestedFormFields(formFields *map[string]*Schema, formFieldsRequired *[]string, structType reflect.Type) {
+	fileUploadInterface := reflect.TypeOf((*framework.FileUpload)(nil)).Elem()
+
+	for i := 0; i < structType.NumField(); i++ {
+		field := structType.Field(i)
+
+		// Skip unexported fields
+		if !field.IsExported() {
+			continue
+		}
+
+		// Get the json tag for the field name
+		jsonTag := field.Tag.Get("json")
+		fieldName := field.Name
+		if jsonTag != "" {
+			fieldName = jsonTag
+		}
+
+		// Check if this field implements the FileUpload interface
+		isFileField := field.Type.Implements(fileUploadInterface)
+
+		var fieldSchema *Schema
+		if isFileField {
+			// File upload field
+			fieldSchema = &Schema{
+				Type:   "string",
+				Format: "binary",
+			}
+		} else {
+			// Regular form field
+			fieldSchema = f.reflectTypeToSchema(field.Type)
+		}
+
+		(*formFields)[fieldName] = fieldSchema
+
+		if strings.Contains(field.Tag.Get("validate"), "required") {
+			*formFieldsRequired = append(*formFieldsRequired, fieldName)
+		}
+	}
 }
 
 // reflectTypeToSchema converts a reflect.Type to a Schema
