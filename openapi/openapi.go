@@ -274,7 +274,7 @@ func (f *OpenApi) parseNestedParameters(parameters *[]Parameter, structType refl
 			Name:        paramName,
 			In:          paramIn,
 			Description: field.Tag.Get("doc"),
-			Required:    strings.Contains(field.Tag.Get("validate"), "required2") || paramIn == "path",
+			Required:    strings.Contains(field.Tag.Get("validate"), "required") || paramIn == "path",
 			Schema:      f.reflectTypeToSchema(field.Type),
 		}
 		*parameters = append(*parameters, param)
